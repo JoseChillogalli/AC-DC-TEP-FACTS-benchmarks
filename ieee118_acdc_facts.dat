@@ -576,10 +576,11 @@ param: ELINE: el_f el_t el_r el_x el_bch el_S el_tap el_tside :=
 #      1.70 de 138 kV). La bahia se suma a banco, STATCOM y SSSC por igual,
 #      porque la Tabla 2.3-8 no incluye posicion de barra para ninguno de los
 #      tres. Bahias en MTEP24 T4.2-1 p.41, fila "Add 1 position (ring bus)".
-#  (5) H3/H12 (candidatos de transformador 5-8 y 37-38): el modelo no tiene
-#      lc_tap, de modo que la candidata entra con razon 1:1 en paralelo con
-#      incumbentes de tap 0.985 y 0.935. Se DECLARA (candidata conmutada a
-#      tap nominal); ningun plan reportado los construye.
+#  (5) RETIRADOS H3 y H12 (candidatos de transformador 5-8 y 37-38): el
+#      modelo no tiene lc_tap, de modo que la candidata habria entrado con
+#      razon 1:1 en paralelo con incumbentes de tap 0.985 y 0.935, sin
+#      reproducir su relacion de transformacion. El catalogo queda en 26
+#      corredores. Ningun plan los construia.
 param: LCAN: lc_f lc_t lc_r lc_x lc_bch lc_S lc_Nmax lc_cost :=
   H1 12 117 0.0329 0.14 0.0358 3.94 3 85.9240
   H2 77 78 0.00376 0.0124 0.01264 3.94 3 10.7093
