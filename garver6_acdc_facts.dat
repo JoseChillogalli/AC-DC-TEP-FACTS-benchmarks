@@ -1,16 +1,60 @@
-# Garver 6-bus (remote-generation scenario)
-# AC/DC-FACTS transmission expansion planning benchmark.
-# All-technologies case: candidate AC circuits, VSC-HVDC links, SSSCs,
-# STATCOMs and modular capacitor banks are simultaneously available.
-# Per-unit on Sbase = 100 MVA. Pure investment objective (CRF = 1,
-# OPF_SCALE = 0). Demands are scaled by load_scale = 1.40.
-# Bus 6 hosts 610 MW and is initially disconnected from the network.
-# Costs: MISO MTEP24 Transmission Cost Estimation Guide (USD 2024).
-# See README.md for parameter derivation and reproduction instructions.
-#
-param load_scale := 1.40;
+# ==========================================================================
+# scn_garver_remote.dat --- ESCENARIO AUTOCONTENIDO Garver-Remote (lambda=1.4)
+# INVERSION PURA: CRF=1 OPF_SCALE=0 load_scale=1.40. Uso: model + data este archivo.
+# ==========================================================================
+# BASE ECONOMICA: la comparabilidad entre los tres cuadros depende de que este
+# par de valores no se mueva. La guarda que lo hace cumplir es imperativa y vive
+# en run/_base_guard.inc (un "check" aqui NO funcionaria: AMPL no lo reevalua
+# sobre datos ya leidos; comprobado 2026-08-21). Incluirla tras model+data.
+# CORRECCIONES rev. 2026-08-24 (auditoria de consistencia total; ver
+# documentation/REVISION_EXPERTO.md seccion 2c):
+#  (A) POSICIONES DE TRANSFORMADOR. Todo transformador paga una posicion por
+#      lado, a la clase de tension de cada lado. Trafo candidato aislado:
+#      dos posiciones. Trafo terminal de un corredor (bloque linea-trafo, el
+#      lado de alta muere en la linea): solo la posicion del lado de baja.
+#  (B) POSICION AC DEL CONVERTIDOR. Cada terminal VSC paga la posicion de
+#      barra de su nivel de conexion AC, igual que banco, STATCOM y SSSC.
+#      MTEP24 T4.2-3 cotiza solo la estacion; la interconexion AC va aparte
+#      (seccion 2.4 del propio MTEP24).
+#  (C) BAHIA DE 500 kV = 5.3 (T4.2-1 p.41, ring bus; antes se usaba 5.0).
+#  (D) ESCALERA DE COSTOS VSC, DECLARADA Y SIN REDONDEOS. Dos anclas de
+#      MTEP24 T4.2-3 (fila VSC), leidas POR POLO:
+#         clase <= 500 MW  -> 159    (estacion VSC de +-250 kV)
+#         clase <= 1000 MW -> 230.5  (= 461/2, por polo de la estacion
+#                                     bipolar VSC de +-400 kV)
+#      y una sola regla: un terminal MONOPOLAR cuesta el costo por polo de su
+#      clase; un terminal BIPOLAR cuesta 1.5 veces el costo por polo de la
+#      clase de su polo (segunda cadena de equipos, con obra y patio de
+#      maniobra compartidos). Aplicada EXACTA, sin redondear:
+#         750 MW bipolar  (polos de 375, clase 500)  = 1.5 x 159   = 238.50
+#         1500 MW bipolar (polos de 750, clase 1000) = 1.5 x 230.5 = 345.75
+#      A ese numero se le suma SIEMPRE la posicion AC de la barra donde se
+#      conecta el terminal, segun (B). De ahi salen los valores del archivo:
+#         500 MW  -> 160.7 (138 kV) / 161.2 (230 kV) / 162.4 (345 kV)
+#         1000 MW -> 232.2 (138 kV)
+#         750 MW bipolar  -> 240.70 (230 kV)
+#         1500 MW bipolar -> 347.45 (138 kV) / 347.95 (230 kV)
+#      NOTA (rev. 2026-08-24b): hasta esta revision las bases bipolares eran
+#      239 y 346, redondeos de 238.50 y 345.75. El redondeo contradecia la
+#      regla que este mismo bloque declara, asi que se elimina. Lo detecto la
+#      revision por pares, no la auditoria interna: al revisar el propio
+#      trabajo se compara el numero contra si mismo, no contra la regla.
+#      Con la escalera declarada, que el bipolar de 750 (240.70) cueste mas
+#      que el monopolar de 1000 (232.2) no es anomalia de monotonia: son
+#      curvas distintas, y la monotonia se cumple dentro de cada una.
+param CRF := 1; param OPF_SCALE := 0; param load_scale := 1.40;   # estres: HVDC compite
+# ============================================================================
+#  garver_remote/base.dat --- Garver 6 barras, escenario "Garver-Remote"
+#  IDENTICO a garver6/base.dat (carga/generacion/red existente del Garver
+#  clasico). El escenario solo redeclara la GEOGRAFIA de los corredores al
+#  bus 6 (hub hidro remoto a 600 km) en candidates_ac.dat / dc.dat.
+#  bus 6 = gen barato 610 MW AISLADO en la topologia base -> el TNEP debe
+#  conectarlo. Unidades: pu sobre Sbase=100.
+# ============================================================================
 param Sbase := 100;
 param refbus := 1;
+
+# bus:  type  Pd     Qd     Gsh Bsh  Vmin  Vmax
 param: BUS: bus_type Pd Qd Gsh Bsh Vmin Vmax :=
   1   3   0.80  0.24  0  0  0.95 1.05
   2   1   2.40  0.72  0  0  0.95 1.05
@@ -18,10 +62,15 @@ param: BUS: bus_type Pd Qd Gsh Bsh Vmin Vmax :=
   4   1   1.60  0.48  0  0  0.95 1.05
   5   1   2.40  0.72  0  0  0.95 1.05
   6   2   0.00  0.00  0  0  0.95 1.05 ;
+
+# generacion existente (audited .m mpc.gen buses 1,3,6). Costo operativo 0
+# (Garver clasico = TNEP de inversion pura); c2/c1/c0 quedan disponibles.
 param: GEN: gen_bus Pgmin Pgmax Qgmin Qgmax cg2 cg1 cg0 :=
   G1   1   0   1.60  -0.10  0.48   0  0  0
   G3   3   0   3.70  -0.10  1.01   0  0  0
   G6   6   0   6.10  -0.10  1.83   0  0  0 ;
+
+# lineas AC existentes (Garver clasico, status=1). rate MVA/100. bch=0.
 param: ELINE: el_f el_t el_r el_x el_bch el_S :=
   E12  1 2   0.04  0.40  0  1.20
   E14  1 4   0.06  0.60  0  1.00
@@ -29,34 +78,183 @@ param: ELINE: el_f el_t el_r el_x el_bch el_S :=
   E23  2 3   0.02  0.20  0  1.20
   E24  2 4   0.04  0.40  0  1.20
   E35  3 5   0.02  0.20  0  1.20 ;
+# ============================================================================
+#  garver_remote/candidates_ac.dat --- 15 corredores AC candidatos
+#  Escenario "Garver-Remote": el bus 6 es un hub hidro REMOTO a 600 km.
+#  TODOS los corredores hacia el bus 6 (C16,C26,C36,C46,C56) comparten esa
+#  geografia y se reemplazan por la clase HVAC 345 kV con fisica real por km:
+#    Zb = 345^2/100 = 1190.25 ohm
+#    x  = 0.33 ohm/km / 1190.25 = 0.000277 pu/km -> 0.166351607 pu @600 km (mas x_tf 0.0986 -> 0.264951607)
+#    r  = 0.032 ohm/km x 600 km / 1190.25 = 0.016131065 + r_tf 0.000986
+#         -> 0.017117065 pu (r/x = 0.09697, NO 0.1; ver rev. 2026-08-20c)
+#    bch= 4.3 uS/km x 600 km x 1190.25 = 3.070845 pu, con 60% reactores shunt
+#         (practica estandar en troncales largas) -> 1.228338 pu
+#    S  = 4.0 pu (termico); la cargabilidad practica (~220 MW/circ St.Clair
+#         a 600 km) la imponen endogenamente el corte angular de 40 grados
+#         del master y la fisica del corredor.
+#    Nmax = 3 (ROW) ; costo = 600 km x 2.25 M$/km (MISO MTEP24 345 kV)
+#         + bahias 6.8 + trafos 4.97 + posiciones de baja 2x2.20 = 1366.17 M$/circuito
+#  Corredores no-6: geometria del garver6 original; desde la rev. 2026-08-24
+#  comparten con los de la barra 6 la misma regla de susceptancia (4.3 uS/km
+#  con 60% de reactores shunt), porque son la misma clase 345 kV. Antes
+#  llevaban 2.1 uS/km sin reactores, unica excepcion del catalogo.
+# ============================================================================
+# ============================================================================
+#  CATALOGO DE CANDIDATAS AC --- CORREGIDO (rev. 2026-08-20)
+#  DOS POBLACIONES, por que el corredor tenga o no circuito existente:
+#   (a) 6 corredores CON incumbente (1-2,1-4,1-5,2-3,2-4,3-5): la candidata es
+#       DUPLICADO EXACTO de la existente en r, x, bch y S. Clase 230 kV ligera
+#       (100-120 MVA: 1.00 pu en C14, 1.20 en los otros cinco), L = 882.3529 km/pu, costo = 1.45 M$/km x L + 2 x 2.20.
+#       Esto elimina el desajuste incumbente-candidata que motivo la revision.
+#   (b) 9 corredores GREENFIELD: no hay incumbente contra el cual desajustarse.
+#       Se conserva el diseno documentado (REVISION_EXPERTO.md:19): clase
+#       345 kV, x = 0.33 ohm/km / 1190.25, bch con 60% de reactores shunt,
+#       costo = 2.25 M$/km x L + bahias 6.8 + posiciones de baja de los dos
+#       autotrafos terminales 2 x 2.20 = 4.40 M$.
+#       ANADIDO: par de autotransformadores 345/230 en ambos extremos, a
+#       6209 $/MVA (tarifa MISO documentada). Se cobra dentro de lc_cost, es
+#       decir SOLO si la linea se construye; no altera la formulacion.
+#         S=17.92 pu -> 2 x 1792 x 0.006209 = 22.25 M$
+#         S= 4.00 pu -> 2 x  400 x 0.006209 =  4.97 M$
+#  RESISTENCIA DE LOS CORREDORES A LA BARRA 6 --- CORREGIDA (rev. 2026-08-20c)
+#   Los cuatro greenfield de 17.92 (C13,C25,C34,C45) ya seguian la convencion
+#   correcta, verificada a 12 cifras contra el dato declarado:
+#       r = (0.032/0.33) x_linea + x_tf/100      con x_tf = 0.022
+#   es decir conductor real 0.032 ohm/km (r/x = 0.09697, NO 0.1) mas el par de
+#   autotransformadores con X/R = 100. Ejemplo C13:
+#       0.092961192 x 0.0969697 + 0.00022 = 0.009234418  (dato: 0.009234418622)
+#   Los cinco de la barra 6 se habian quedado en la convencion vieja r = 0.1 x
+#   = 0.0166, sin r_tf, pese a que la v4 ya les habia metido x_tf = 0.0986 en
+#   la reactancia (0.166 -> 0.2646). Se corrigen a la misma regla:
+#       r_linea = 0.032 x 600 / 1190.25 = 0.016131065
+#       r_tf    = 0.0986 / 100          = 0.000986000
+#       r_total                         = 0.017117065
+#  ALINEACION DE LONGITUD (rev. 2026-08-20d): las tres magnitudes del corredor
+#  a barra 6 dicen ahora 600 km: costo 600x2.25+6.8+4.9672, r_linea 0.032x600/Zb,
+#  x_linea = 0.33x600/1190.25 = 0.166351607 (antes 0.166, que implicaba 598.73 km)
+#  + x_tf 0.0986 -> x_total = 0.264951607. bch=1.23 ya era de 600 km.
+#   Con esto las NUEVE greenfield quedan bajo una sola convencion. No cambia
+#   ningun costo (lc_cost intacto) ni la reactancia; solo las perdidas.
+#  NOTA DE CONDUCTOR: la clase 230 kV de (a) implica 0.5995 ohm/km, mas ligera
+#  que la de 0.2042 ohm/km para la que se derivo la tarifa de 1.45 M$/km. Se
+#  mantiene la tarifa completa: es conservador (encarece la opcion AC).
+# ============================================================================
 param: LCAN: lc_f lc_t lc_r lc_x lc_bch lc_S lc_Nmax lc_cost :=
-  C12  1 2  0.009708861707  0.1198538864   0.8821852941  17.92  3   823.1707031
-  C13  1 3  0.009234418622  0.114961192    0.8380760294  17.92  3   783.4648207
-  C14  1 4  0.01445329256   0.1687808295   1.323277941   17.92  3  1220.229527
-  C15  1 5  0.02902257311   0.06811964862  0.1587         6.57  3   260.2823529
-  C16  1 6  0.0166          0.166          1.23           4.00  3  1356.8
-  C23  2 3  0.02902257311   0.06811964862  0.1587         6.57  3   260.2823529
-  C24  2 4  0.009708861707  0.1198538864   0.8821852941  17.92  3   823.1707031
-  C25  2 5  0.007573867823  0.09783676193  0.6836936029  17.92  3   644.4942325
-  C26  2 6  0.0166          0.166          1.23           4.00  3  1356.8
-  C34  3 4  0.01421607102   0.1663344824   1.301223309   17.92  3  1200.376585
-  C35  3 5  0.02902257311   0.06811964862  0.1587         6.57  3   260.2823529
-  C36  3 6  0.0166          0.166          1.23           4.00  3  1356.8
-  C45  4 5  0.01516495719   0.176119871    1.389441838   17.92  3  1279.78835
-  C46  4 6  0.0166          0.166          1.23           4.00  3  1356.8
-  C56  5 6  0.0166          0.166          1.23           4.00  3  1356.8 ;
+    C12 1 2 0.0400 0.4000 0.0000 1.2000 3 516.1647
+    C13 1 3 0.009234418622 0.114961192 0.686424176 17.92 3 787.8648
+    C14 1 4 0.0600 0.6000 0.0000 1.0000 3 772.0470
+    C15 1 5 0.0200 0.2000 0.0000 1.2000 3 260.2823
+    C16 1 6 0.017117065 0.264951607 1.228338 4.00 3 1366.1672
+    C23 2 3 0.0200 0.2000 0.0000 1.2000 3 260.2823
+    C24 2 4 0.0400 0.4000 0.0000 1.2000 3 516.1647
+    C25 2 5 0.007573867823 0.09783676193 0.559977618 17.92 3 648.8942
+    C26 2 6 0.017117065 0.264951607 1.228338 4.00 3 1366.1672
+    C34 3 4 0.01421607102 0.1663344824 1.065763853 17.92 3 1204.7766
+    C35 3 5 0.0200 0.2000 0.0000 1.2000 3 260.2823
+    C36 3 6 0.017117065 0.264951607 1.228338 4.00 3 1366.1672
+    C45 4 5 0.01516495719 0.176119871 1.138019029 17.92 3 1284.1884
+    C46 4 6 0.017117065 0.264951607 1.228338 4.00 3 1366.1672
+    C56 5 6 0.017117065 0.264951607 1.228338 4.00 3 1366.1672
+;
+# ============================================================================
+#  garver_remote/caps.dat --- bancos shunt de capacitores modulares
+#  IDENTICO a garver6/caps.dat. Modulos de 100 MVAr (qmod=1.0 pu a V=1) en
+#  barras PQ; 3 modulos/barra.
+#  Costo = 100 MVAr x 11,873 USD/MVAr = 1.19 MUSD + bahia de 230 kV 2.20 =
+#  3.39 MUSD/modulo (equipo en MISO MTEP24 T2.3-8 p.26; bahia en T4.2-1 p.41,
+#  fila "Add 1 position (ring bus)").
+#  La bahia se suma a banco, STATCOM y SSSC por igual, porque la Tabla 2.3-8
+#  no incluye posicion de barra para ninguno de los tres y un banco necesita
+#  interruptor, seccionadores, medida, proteccion y obra como cualquier otro.
+# ============================================================================
 param: NBC: bc_bus bc_Hmax bc_qmod bc_cmod :=
-  B2   2   3   1.0   1.19
-  B4   4   3   1.0   1.19
-  B5   5   3   1.0   1.19 ;
+  B2   2   3   1.0   3.39
+  B4   4   3   1.0   3.39
+  B5   5   3   1.0   3.39 ;
+# ============================================================================
+#  garver_remote/facts.dat --- STATCOM + SSSC candidatos
+#  IDENTICO a garver6/facts.dat (costos oficiales MISO MTEP24 Tabla 2.3-8):
+#   STATCOM  = 226,013 USD/MVAr x 150 MVAr + bahia 2.2 = 36.1 MUSD
+#   APFC/SSSC = 159,750 USD/MVAr x S_serie(=sc_Sabs=30 MVA) + 2.2 = 6.9925 MUSD
+#  RATINGS DEL SSSC --- RECONCILIADOS (rev. 2026-08-20)
+#   sc_S es el termico de la RAMA compensada, no del dispositivo: instalar una
+#   fuente serie no cambia el conductor de la linea anfitriona. Valia 1.5 contra
+#   el_S=1.20 de E24/E15, es decir un +25% de repotenciacion termica gratuita
+#   que no es control de flujo. Se fija sc_S := el_S[anfitriona] = 1.20.
+#   Con eso los tres ratings del dispositivo quedan coherentes entre si:
+#     sc_Sabs = sc_Vmax x sc_S  ->  0.30 = 0.25 x 1.20   (exacto)
+#   o sea: a corriente termica plena la fuente serie inserta exactamente su
+#   tension maxima, ni mas ni menos. El costo NO cambia, se cobra sobre
+#   sc_Sabs = 0.3 pu = 30 MVA, que no se ha tocado.
+# ============================================================================
 param: NST: st_bus st_g st_b st_Vmin st_Vmax st_S st_cost :=
   S2   2   0  -10   0.9  1.1   1.5   36.1
   S4   4   0  -10   0.9  1.1   1.5   36.1
   S5   5   0  -10   0.9  1.1   1.5   36.1 ;
+
 param: LSC: sc_line sc_r sc_x sc_Vmax sc_S sc_Sabs sc_cost :=
-  Q24  E24  0.04  0.40  0.25  1.5  0.3  7.0
-  Q15  E15  0.02  0.20  0.25  1.5  0.3  7.0 ;
+  Q24  E24  0.04  0.40  0.25  1.20  0.3  6.9925
+  Q15  E15  0.02  0.20  0.25  1.20  0.3  6.9925  ;
+# ============================================================================
+#  garver_remote/dc.dat --- 15 enlaces VSC-HVDC candidatos (espejo de los AC)
+#  ---------------------------------------------------------------------
+#  TOPOLOGIA DE LOS ENLACES VSC (decision de ingenieria, rev. 2026-08-25).
+#  El catalogo NO es homogeneo, y es deliberado:
+#
+#    10 enlaces de la malla (L12,L13,L14,L15,L23,L24,L25,L34,L35,L45)
+#       500 MW, 176-556 km  ->  MONOPOLO SIMETRICO +-250 kV
+#    5 enlaces al hub del bus 6 (L16,L26,L36,L46,L56)
+#       750 MW, 600 km      ->  BIPOLO
+#
+#  Criterios:
+#  (1) REDUNDANCIA DE INFEED UNICO. El bus 6 concentra 610 MW de hidraulica
+#      y el enlace es su unica salida a la red. Una falla de polo en
+#      monopolo simetrico deja fuera los 750 MW completos; en bipolo se
+#      conserva la mitad, y mas con la sobrecarga del polo sano. Los diez
+#      enlaces de 500 MW estan dentro de la malla, donde los corredores AC
+#      existentes dan respaldo y ninguna generacion queda aislada.
+#  (2) RETORNO POR TIERRA. Un monopolo rigido de 750 MW sobre 600 km de
+#      recorrido terrestre exigiria electrodos con corriente permanente o
+#      un conductor de retorno metalico dedicado: emplazamiento de
+#      electrodos, corrosion de tuberias y mallas enterradas e
+#      interferencia en telecomunicaciones. El bipolo balanceado tiene
+#      corriente de neutro casi nula y solo usa tierra de forma transitoria
+#      ante salida de polo. El monopolo SIMETRICO de los diez enlaces cortos
+#      no tiene ese problema: dos conductores a +-250 kV, sin retorno.
+#  (3) PRACTICA A ESA POTENCIA Y DISTANCIA. Los enlaces terrestres largos
+#      de 600 MW para arriba son bipolares de forma casi universal; el
+#      monopolo simetrico se usa por debajo de esa franja o en esquemas de
+#      cable mas cortos.
+#
+#  Coherencia con el costo: el bipolo de 750 MW tiene polos de 375 MW,
+#  clase <=500, luego su terminal vale 1.5 x 159 = 238.50 mas la posicion
+#  AC. Ese 1.5 es la prima de bipolo (segunda cadena de valvulas con obra
+#  civil y patio de maniobra compartidos), dentro del rango 1.4-1.6 usual.
+#  El ancla de MTEP24 T4.2-3 para 159 es una estacion VSC de +-250 kV, que
+#  es justamente una estacion de monopolo simetrico.
+#
+#  AVISO PARA EL ARTICULO: 4_resultados.tex describe los cinco enlaces de
+#  750 MW como "monopolar links". Es el TEXTO el que esta mal, no el dato.
+#  ---------------------------------------------------------------------
+#  Escenario "Garver-Remote": los 5 enlaces al bus 6 (L16,L26,L36,L46,L56,
+#  600 km) se reemplazan por el bipolo VSC 750 MW:
+#    linea: 600 km x 1.75 M$/km (curva MISO <=1500 MW) = 1050 M$
+#    r_dc : criterio DU = P*r <= 0.10 pu a rating -> r <= 0.10/7.5 = 0.0133;
+#           se usa 0.008 (DU = 6.0% a 750 MW)
+#    rate : 7.5 pu (750 MW) ; p = 1 (bipolo agregado, convencion DL18 mtc)
+#  Convertidores del bipolo (2 por enlace, 240.70 = 1.5 x 159 por polo, mas
+#  posicion AC de 230 kV 2.20; los de clase 500 MW: 159+2.20 = 161.2):
+#    Srated = 1.1 x P = 8.25 ; Imax = 8.25 ; Pac,Pdc = +-7.5
+#    Qac = sqrt(0.21) x P = +-3.436932 (misma capability pu que la clase 500 MW)
+#    perdidas: la = 0.003 x P = 0.0225 ; lb = 0.006061 ; lc = 0.002295/P = 3.06e-4 (anclado en la clase 500 MW auditada: 1.136% a plena carga)
+#    trafo/reactor escalados ~1/P desde la fila 500 MW del garver6:
+#      rtf = 0.0001818181818x(5/7.5)=0.0001212121212  xtf = 0.01818181818x(5/7.5)=0.01212121212
+#      rc  = 0.0001272727273x(5/7.5)=0.00008484848485  xc  = 0.01272727273x(5/7.5)=0.008484848485
+#  Enlaces no-6: datos auditados del garver6 original (clase 500 MW, 159 por polo + 2.20 = 161.2).
+#  Nodo DC del enlace m: (2m-1, 2m). Udc 0.9-1.1.
+# ============================================================================
 set EDC := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 ;
+
 param: Udcmin Udcmax :=
   1  0.9 1.1
   2  0.9 1.1
@@ -89,6 +287,7 @@ param: Udcmin Udcmax :=
   29  0.9 1.1
   30  0.9 1.1
 ;
+
 param: DDC: dc_f dc_t dc_r dc_p dc_rate dc_exist dc_cost :=
   L12  1 2  0.01016470588  1  5.0  0  529.4117647
   L13  3 4  0.009656470587  1  5.0  0  502.9411764
@@ -106,39 +305,46 @@ param: DDC: dc_f dc_t dc_r dc_p dc_rate dc_exist dc_cost :=
   L46  27 28  0.008  1  7.5  0  1050
   L56  29 30  0.008  1  7.5  0  1050
 ;
+
+# convertidores VSC candidatos. Filas 500 MW = garver6 original (159 + 2.20 = 161.2);
+# filas del bipolo 750 MW (CA5/CB5, CA9/CB9, CA12/CB12, CA14/CB14, CA15/CB15)
+# segun derivacion del encabezado (240.70 M$ con posicion AC).
 param: CONV: cv_iac cv_edc cv_exist cv_haveTf cv_rtf cv_xtf cv_tap cv_haveRe cv_rc cv_xc cv_bf
              cv_Ufmin cv_Ufmax cv_Ucmin cv_Ucmax cv_Imax cv_Srated cv_Pacmax cv_Pacmin
              cv_Qacmax cv_Qacmin cv_Pdcmax cv_Pdcmin cv_Idcmax cv_la cv_lb cv_lc cv_cost :=
-  CA1  1  1  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB1  2  2    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA2  1  3  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB2  3  4    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA3  1  5  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB3  4  6    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA4  1  7  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB4  5  8    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA5  1  9  0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CB5  6  10    0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CA6  2  11  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB6  3  12    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA7  2  13  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB7  4  14    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA8  2  15  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB8  5  16    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA9  2  17  0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CB9  6  18    0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CA10  3  19  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB10  4  20    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA11  3  21  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB11  5  22    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA12  3  23  0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CB12  6  24    0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CA13  4  25  0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CB13  5  26    0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.00363657 0.00016528 159
-  CA14  4  27  0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CB14  6  28    0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CA15  5  29  0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
-  CB15  6  30    0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.435 -3.435 7.5 -7.5 9.0 0.0225 0.006061 0.000004 239
+  CA1 1 1 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB1 2 2 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA2 1 3 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB2 3 4 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA3 1 5 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB3 4 6 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA4 1 7 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB4 5 8 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA5 1 9 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CB5 6 10 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CA6 2 11 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB6 3 12 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA7 2 13 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB7 4 14 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA8 2 15 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB8 5 16 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA9 2 17 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CB9 6 18 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CA10 3 19 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB10 4 20 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA11 3 21 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB11 5 22 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA12 3 23 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CB12 6 24 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CA13 4 25 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CB13 5 26 0 1 0.0001818181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 161.2
+  CA14 4 27 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CB14 6 28 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CA15 5 29 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
+  CB15 6 30 0 1 0.0001212121212 0.01212121212 1 1 0.00008484848485 0.008484848485 0 0.9 1.1 0.9 1.1 8.25 8.25 7.5 -7.5 3.436931771 -3.436931771 7.5 -7.5 9.0 0.0225 0.006061 0.000306 240.7
 ;
+# garver_remote/tighten.dat --- cortes del master MISOCP (40 grados, igual
+# que ieee118_hybrid/tighten.dat). Activos SOLO en solves MISOCP; se sueltan
+# (drop AngHi/AngLo/LNC1/LNC2) en corridas continuas y en la verificacion polar.
 param tan_amax := 0.8391;
 param theta_max_rad := 0.6981;

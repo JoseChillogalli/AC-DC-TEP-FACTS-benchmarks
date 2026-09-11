@@ -1,16 +1,57 @@
-# IEEE 24-bus RTS-96 (bulk-corridor scenario)
-# AC/DC-FACTS transmission expansion planning benchmark.
-# All-technologies case: candidate AC circuits, VSC-HVDC links, SSSCs,
-# STATCOMs and modular capacitor banks are simultaneously available.
-# Per-unit on Sbase = 100 MVA. Pure investment objective (CRF = 1,
-# OPF_SCALE = 0). Demands are scaled by load_scale = 0.75.
-# A 2000 MW generation hub at bus 22 feeds demand at bus 8 over a 700 km corridor.
-# Costs: MISO MTEP24 Transmission Cost Estimation Guide (USD 2024).
-# See README.md for parameter derivation and reproduction instructions.
-#
+# ==========================================================================
+# scn_ieee24_bulk_v4_inv.dat --- IEEE24-Bulk v4 (bus8=1800, escasez 4 bancos)
+# INVERSION PURA: CRF=1 OPF_SCALE=0 load_scale=0.75
+# ==========================================================================
+# GUARDA (rev. 2026-08-21b): OPF_SCALE=0 es lo que pone los tres sistemas en la
+# misma base economica (inversion pura). Los cg de los generadores NO son
+# homogeneos entre sistemas (Garver 0/3, IEEE-24 1/12, IEEE-118 54/54 unidades con
+# coeficientes no nulos): activar OPF_SCALE=1 sin homogeneizarlos rompe la
+# comparabilidad entre cuadros. No mover este interruptor de forma aislada.
+# BASE ECONOMICA: la comparabilidad entre los tres cuadros depende de que este
+# par de valores no se mueva. La guarda que lo hace cumplir es imperativa y vive
+# en run/_base_guard.inc (un "check" aqui NO funcionaria: AMPL no lo reevalua
+# sobre datos ya leidos; comprobado 2026-08-21). Incluirla tras model+data.
+# CORRECCIONES rev. 2026-08-24 (auditoria de consistencia total; ver
+# documentation/REVISION_EXPERTO.md seccion 2c):
+#  (A) POSICIONES DE TRANSFORMADOR. Todo transformador paga una posicion por
+#      lado, a la clase de tension de cada lado. Trafo candidato aislado:
+#      dos posiciones. Trafo terminal de un corredor (bloque linea-trafo, el
+#      lado de alta muere en la linea): solo la posicion del lado de baja.
+#  (B) POSICION AC DEL CONVERTIDOR. Cada terminal VSC paga la posicion de
+#      barra de su nivel de conexion AC, igual que banco, STATCOM y SSSC.
+#      MTEP24 T4.2-3 cotiza solo la estacion; la interconexion AC va aparte
+#      (seccion 2.4 del propio MTEP24).
+#  (C) BAHIA DE 500 kV = 5.3 (T4.2-1 p.41, ring bus; antes se usaba 5.0).
+#  (D) ESCALERA DE COSTOS VSC, DECLARADA Y SIN REDONDEOS. Dos anclas de
+#      MTEP24 T4.2-3 (fila VSC), leidas POR POLO:
+#         clase <= 500 MW  -> 159    (estacion VSC de +-250 kV)
+#         clase <= 1000 MW -> 230.5  (= 461/2, por polo de la estacion
+#                                     bipolar VSC de +-400 kV)
+#      y una sola regla: un terminal MONOPOLAR cuesta el costo por polo de su
+#      clase; un terminal BIPOLAR cuesta 1.5 veces el costo por polo de la
+#      clase de su polo (segunda cadena de equipos, con obra y patio de
+#      maniobra compartidos). Aplicada EXACTA, sin redondear:
+#         750 MW bipolar  (polos de 375, clase 500)  = 1.5 x 159   = 238.50
+#         1500 MW bipolar (polos de 750, clase 1000) = 1.5 x 230.5 = 345.75
+#      A ese numero se le suma SIEMPRE la posicion AC de la barra donde se
+#      conecta el terminal, segun (B). De ahi salen los valores del archivo:
+#         500 MW  -> 160.7 (138 kV) / 161.2 (230 kV) / 162.4 (345 kV)
+#         1000 MW -> 232.2 (138 kV)
+#         750 MW bipolar  -> 240.70 (230 kV)
+#         1500 MW bipolar -> 347.45 (138 kV) / 347.95 (230 kV)
+#      NOTA (rev. 2026-08-24b): hasta esta revision las bases bipolares eran
+#      239 y 346, redondeos de 238.50 y 345.75. El redondeo contradecia la
+#      regla que este mismo bloque declara, asi que se elimina. Lo detecto la
+#      revision por pares, no la auditoria interna: al revisar el propio
+#      trabajo se compara el numero contra si mismo, no contra la regla.
+#      Con la escalera declarada, que el bipolar de 750 (240.70) cueste mas
+#      que el monopolar de 1000 (232.2) no es anomalia de monotonia: son
+#      curvas distintas, y la monotonia se cumple dentro de cada una.
 param CRF := 1; param OPF_SCALE := 0; param load_scale := 0.75;
+# ieee24/base.dat (auto desde ieee24_acdc_gtnep_NR_react.m; misma metodologia IEEE118)
 param Sbase := 100;
 param refbus := 1;
+
 param: BUS: bus_type Pd Qd Gsh Bsh Vmin Vmax :=
   1 3 3.24000 0.97200 0.00000 0.00000 0.95 1.05
   2 2 2.91000 0.87300 0.00000 0.00000 0.95 1.05
@@ -37,6 +78,7 @@ param: BUS: bus_type Pd Qd Gsh Bsh Vmin Vmax :=
   23 2 0.00000 0.00000 0.00000 0.00000 0.95 1.05
   24 1 0.00000 0.00000 0.00000 0.00000 0.95 1.05
 ;
+
 param: GEN: gen_bus Pgmin Pgmax Qgmin Qgmax cg2 cg1 cg0 :=
   G1  1  0.0000 4.8960 -0.9792 2.4000  0.000000 0.000000 0.000000
   G2  2  0.0000 4.8960 -0.9792 2.4000  0.000000 0.000000 0.000000
@@ -51,6 +93,7 @@ param: GEN: gen_bus Pgmin Pgmax Qgmin Qgmax cg2 cg1 cg0 :=
   G11  22  0.0000 20.0000 -6.0000 6.0000  0.000000 300.000000 0.000000
   G12  23  0.0000 16.8300 -3.3660 8.4150  0.000000 0.000000 0.000000
 ;
+
 param: ELINE: el_f el_t el_r el_x el_bch el_S el_tap el_tside :=
   E1  1 2  0.0026 0.0139 0.4611  2.0000  1.000000  1
   E2  1 3  0.0546 0.2112 0.0572  2.2000  1.000000  1
@@ -91,37 +134,66 @@ param: ELINE: el_f el_t el_r el_x el_bch el_S el_tap el_tside :=
   E37  20 23  0.0028 0.0216 0.0455  6.2500  1.000000  1
   E38  21 22  0.0087 0.0678 0.1424  6.2500  1.000000  1
 ;
+# ieee24_bulk/candidates_bulk.dat --- candidatos AC CURADOS (metodologia
+# IEEE118 mtc: set curado + corredor bulk de clase fisica real).
+# CURACION (documentada en IEEE24_BULK_BENCHMARK.md):
+#  - Se conservan los 27 espejos clase-corta del set fuente N1-N38 (cada uno con
+#    MISO 138 kV 1.30 M$/km + bahias): mallado intra-area.
+#  - Se EXCLUYEN los 11 espejos clase-larga del fuente (N6,N8-N17: S=17.92,
+#    442-595 km implicitos, 513-1132 M$): llevan la incoherencia declarada
+#    del fuente (transformadores 9/10-11/12 espejados como lineas de 300+ km)
+#    y su rol -- transferencia bulk al area sur -- es el que este escenario
+#    re-disena con clases fisicas reales (B1 500 kV / DL9 bipolo VSC).
+#  - B1: corredor bulk 8-22 (canonico f<t; hub emisor = 22), 700 km, 500 kV:
+#    r=0.028 ohm/km*700/2500=0.00784 + r_tf 0.00015163 = 0.00799163 pu ;
+#    bch=4.66uS/km*700*2500=8.155 pu, con 60% reactores -> 3.262 pu ;
+#    S=26 pu termico (cargabilidad St.Clair la impone el corte angular 40 deg);
+#    Nmax=3 (ROW); costo=700*3.0 M$/km (T4.1-1 banda 500 kV) + bahias 2x5.3
+#    + trafos 2600 MVA 32.29 + posiciones de baja 1.70 (barra 8, 138 kV)
+#    + 2.20 (barra 22, 230 kV) = 2146.79.
 param: LCAN: lc_f lc_t lc_r lc_x lc_bch lc_S lc_Nmax lc_cost :=
-  N1 1 2 0.0026 0.0139 0.001620375336 3.9400 3 11.59345429
-  N2 1 3 0.0546 0.2112 0.0246203792 3.9400 3 127.8933486
-  N3 1 5 0.0218 0.0845 0.009850483156 3.9400 3 53.20912858
-  N4 2 4 0.0328 0.1267 0.01476989604 3.9400 3 78.08422
-  N5 2 6 0.0497 0.192 0.02238216291 3.9400 3 116.5757714
-  N7 3 24 0.0023 0.0839 0.009780538895 3.9400 3 52.85545428
-  N18 11 13 0.0061 0.0476 0.005548911221 3.9400 3 31.45816
-  N19 11 14 0.0054 0.0418 0.004872783384 3.9400 3 28.03930858
-  N20 12 13 0.0061 0.0476 0.005548911221 3.9400 3 31.45816
-  N21 12 23 0.0124 0.0966 0.01126102571 3.9400 3 60.34156
-  N22 13 23 0.0111 0.0865 0.01008363069 3.9400 3 54.38804286
-  N23 14 16 0.005 0.0389 0.004534719464 3.9400 3 26.32988286
-  N24 15 16 0.0022 0.0173 0.002016726137 3.9400 3 13.59760857
-  N25 15 21 0.0063 0.049 0.005712114492 3.9400 3 32.2834
-  N26 15 21 0.0063 0.049 0.005712114492 3.9400 3 32.2834
-  N27 15 24 0.0067 0.0519 0.006050178412 3.9400 3 33.99282572
-  N28 16 17 0.0033 0.0259 0.003019260517 3.9400 3 18.66694
-  N29 16 19 0.003 0.0231 0.002692853975 3.9400 3 17.01646
-  N30 17 18 0.0018 0.0144 0.001678662218 3.9400 3 11.88818286
-  N31 17 22 0.0135 0.1053 0.01227521747 3.9400 3 65.46983714
-  N32 18 21 0.0033 0.0259 0.003019260517 3.9400 3 18.66694
-  N33 18 21 0.0033 0.0259 0.003019260517 3.9400 3 18.66694
-  N34 19 20 0.0051 0.0396 0.0046163211 3.9400 3 26.74250286
-  N35 19 20 0.0051 0.0396 0.0046163211 3.9400 3 26.74250286
-  N36 20 23 0.0028 0.0216 0.002517993327 3.9400 3 16.13227429
-  N37 20 23 0.0028 0.0216 0.002517993327 3.9400 3 16.13227429
-  N38 21 22 0.0087 0.0678 0.007903701276 3.9400 3 43.36519428
-  B1 8 22 0.0078 0.0784 3.26 26.0000 3 2110.0
+  N1    1  2  0.0026  0.0139  0.4611   2.0000  3    11.5935   # dup E: 138kV L=6.3 km @1.30
+  N2    1  3  0.0546  0.2112  0.0572   2.2000  3   127.8934   # dup E: 138kV L=95.8 km @1.30
+  N3    1  5  0.0218  0.0845  0.0229   2.2000  3    53.2091   # dup E: 138kV L=38.3 km @1.30
+  N4    2  4  0.0328  0.1267  0.0343   2.2000  3    78.0842   # dup E: 138kV L=57.4 km @1.30
+  N5    2  6  0.0497  0.192   0.052    2.2000  3   116.5758   # dup E: 138kV L=87.1 km @1.30
+  N7    3 24  0.0023  0.0839  0        6.0000  3     7.6254   # dup E: TRAFO 600 MVA @6209 $/MVA + posiciones 1.70+2.20 (una por lado, a la clase de cada lado)
+  N18  11 13  0.0061  0.0476  0.0999   6.2500  3    81.5368   # dup E: 230kV L=53.2 km @1.45
+  N19  11 14  0.0054  0.0418  0.0879   6.2500  3    72.1377   # dup E: 230kV L=46.7 km @1.45
+  N20  12 13  0.0061  0.0476  0.0999   6.2500  3    81.5368   # dup E: 230kV L=53.2 km @1.45
+  N21  12 23  0.0124  0.0966  0.203    6.2500  3   160.9422   # dup E: 230kV L=108.0 km @1.45
+  N22  13 23  0.0111  0.0865  0.1818   6.2500  3   144.5750   # dup E: 230kV L=96.7 km @1.45
+  N23  14 16  0.005   0.0389  0.0818   6.2500  3    67.4382   # dup E: 230kV L=43.5 km @1.45
+  N24  15 16  0.0022  0.0173  0.0364   6.2500  3    32.4350   # dup E: 230kV L=19.3 km @1.45
+  N25  15 21  0.0063  0.049   0.103    6.2500  3    83.8055   # dup E: 230kV L=54.8 km @1.45
+  N26  15 21  0.0063  0.049   0.103    6.2500  3    83.8055   # dup E: 230kV L=54.8 km @1.45
+  N27  15 24  0.0067  0.0519  0.1091   6.2500  3    88.5050   # dup E: 230kV L=58.0 km @1.45
+  N28  16 17  0.0033  0.0259  0.0545   6.2500  3    46.3715   # dup E: 230kV L=28.9 km @1.45
+  N29  16 19  0.003   0.0231  0.0485   6.2500  3    41.8340   # dup E: 230kV L=25.8 km @1.45
+  N30  17 18  0.0018  0.0144  0.0303   6.2500  3    27.7355   # dup E: 230kV L=16.1 km @1.45
+  N31  17 22  0.0135  0.1053  0.2212   6.2500  3   175.0408   # dup E: 230kV L=117.7 km @1.45
+  N32  18 21  0.0033  0.0259  0.0545   6.2500  3    46.3715   # dup E: 230kV L=28.9 km @1.45
+  N33  18 21  0.0033  0.0259  0.0545   6.2500  3    46.3715   # dup E: 230kV L=28.9 km @1.45
+  N34  19 20  0.0051  0.0396  0.0833   6.2500  3    68.5726   # dup E: 230kV L=44.3 km @1.45
+  N35  19 20  0.0051  0.0396  0.0833   6.2500  3    68.5726   # dup E: 230kV L=44.3 km @1.45
+  N36  20 23  0.0028  0.0216  0.0455   6.2500  3    39.4032   # dup E: 230kV L=24.1 km @1.45
+  N37  20 23  0.0028  0.0216  0.0455   6.2500  3    39.4032   # dup E: 230kV L=24.1 km @1.45
+  N38  21 22  0.0087  0.0678  0.1424   6.2500  3   114.2713   # dup E: 230kV L=75.8 km @1.45
+  B1 8 22 0.00799163 0.093563 3.262 26.0000 3 2146.7868 # bulk 500 kV: 2100 + 10.6 + 32.29 (trafos 2600 MVA) + 3.90 (posiciones de baja 1.70 en b8 + 2.20 en b22) = 2146.79
 ;
+# ieee24_bulk/dc_bulk.dat --- copia de ieee24/dc.dat (8 espejos VSC 500 MW,
+# linea km x 1.50 M$; conv 159 por polo + posicion AC = 160.7; MISO) + BIPOLO BULK del escenario:
+#  DL9 (nodos 17-18): bipolo VSC +-400 kV 1500 MW (clase que fijan sus terminales: 1.5x230.5), 700 km, hub 22 -> bus 8.
+#    r_dc: 0.011 ohm/km/polo*700=7.7 ohm ; Zb=400^2/100=1600; bipolo /2 -> 7.7/1600/2=0.00240625
+#          (DU = 0.00240625*15 = 3.6% <= 10% al rating). rate=15 pu.
+#    costo linea = 700 km x 1.75 M$/km (curva MISO <=1500 MW) = 1225 M$.
+#  DV17 (AC 22) / DV18 (AC 8): 1.5 x 230.5 por polo = 345.75 + posicion AC: 347.95 (b22) / 347.45 (b8).
+#    Srated=1.1P=16.5 ; Q=+-0.458P=+-6.87 (=sqrt(Srated^2-P^2)) ; Idc=1.2P=18;
+#    perdidas la=0.003P=0.045, lb=0.006061, lc=0.002295/P=0.000153;
+#    impedancias conv escaladas desde el ancla de 500 MW (rev. 2026-08-27):
+#    xtf=0.01818181818x(5/15)=0.00606060606, rtf=xtf/100; xc=0.01272727273x(5/15)=0.00424242424, rc=xc/100. En base propia (Srated=1.1P) da 0.10 y 0.07 pu, igual que TODAS las clases.
 set EDC := 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 ;
+
 param: Udcmin Udcmax :=
   1  0.9 1.1
   2  0.9 1.1
@@ -142,57 +214,91 @@ param: Udcmin Udcmax :=
   17  0.9 1.1
   18  0.9 1.1
 ;
+
 param: DDC: dc_f dc_t dc_r dc_p dc_rate dc_exist dc_cost :=
-  DL1  1 2  0.014400  1  5.0  0  750.0
-  DL2  3 4  0.014400  1  5.0  0  750.0
-  DL3  5 6  0.014400  1  5.0  0  750.0
-  DL4  7 8  0.014400  1  5.0  0  750.0
-  DL5  9 10  0.014397  1  5.0  0  749.9
-  DL6  11 12  0.013572  1  5.0  0  706.9
-  DL7  13 14  0.012748  1  5.0  0  663.9
-  DL8  15 16  0.012748  1  5.0  0  663.9
-  DL9  17 18  0.004  1  15.0  0  1225.0
+  DL1  1 2  0.014400  1  5.0  0  750.0	# corredor 8-9, 500.0 km
+  DL2  3 4  0.014400  1  5.0  0  750.0	# corredor 8-10, 500.0 km
+  DL3  5 6  0.014400  1  5.0  0  750.0	# corredor 8-9, 500.0 km
+  DL4  7 8  0.014400  1  5.0  0  750.0	# corredor 8-10, 500.0 km
+  DL5  9 10  0.014397  1  5.0  0  749.9	# corredor 1-8, 499.9 km
+  DL6  11 12  0.013572  1  5.0  0  706.9	# corredor 2-8, 471.3 km
+  DL7  13 14  0.012748  1  5.0  0  663.9	# corredor 3-9, 442.6 km
+  DL8  15 16  0.012748  1  5.0  0  663.9	# corredor 3-9, 442.6 km
+  DL9 17 18 0.00240625 1 15.0 0 1225.0 # BIPOLO BULK 22->8, 700 km, +-500kV 1500MW
 ;
+
 param: CONV: cv_iac cv_edc cv_exist cv_haveTf cv_rtf cv_xtf cv_tap cv_haveRe cv_rc cv_xc cv_bf cv_Ufmin cv_Ufmax cv_Ucmin cv_Ucmax cv_Imax cv_Srated cv_Pacmax cv_Pacmin cv_Qacmax cv_Qacmin cv_Pdcmax cv_Pdcmin cv_Idcmax cv_la cv_lb cv_lc cv_cost :=
-  DA1  8  1  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB1  9  2  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA2  8  3  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB2  10  4  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA3  8  5  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB3  9  6  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA4  8  7  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB4  10  8  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA5  1  9  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB5  8  10  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA6  2  11  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB6  8  12  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA7  3  13  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB7  9  14  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DA8  3  15  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DB8  9  16  0 1 0.0001818 0.01818 1 1 0.0001273 0.01273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.2913 -2.2913 5.0 -5.0 6.0 0.015 0.006061 0.000459 159
-  DV17  22  17  0 1 0.0000667 0.00667 1 1 0.0000467 0.00467 0 0.9 1.1 0.9 1.1 16.5 16.5 15.0 -15.0 6.87 -6.87 15.0 -15.0 18.0 0.045 0.006061 0.000002 346
-  DV18  8  18  0 1 0.0000667 0.00667 1 1 0.0000467 0.00467 0 0.9 1.1 0.9 1.1 16.5 16.5 15.0 -15.0 6.87 -6.87 15.0 -15.0 18.0 0.045 0.006061 0.000002 346
+  DA1 8 1 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB1 9 2 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA2 8 3 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB2 10 4 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA3 8 5 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB3 9 6 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA4 8 7 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB4 10 8 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA5 1 9 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB5 8 10 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA6 2 11 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB6 8 12 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA7 3 13 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB7 9 14 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DA8 3 15 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DB8 9 16 0 1 0.00018181818 0.01818181818 1 1 0.0001272727273 0.01272727273 0 0.9 1.1 0.9 1.1 5.5 5.5 5.0 -5.0 2.291287847 -2.291287847 5.0 -5.0 6.0 0.015 0.006061 0.000459 160.7
+  DV17 22 17 0 1 0.00006060606 0.00606060606 1 1 0.0000424242424 0.00424242424 0 0.9 1.1 0.9 1.1 16.5 16.5 15.0 -15.0 6.873863542 -6.873863542 15.0 -15.0 18.0 0.045 0.006061 0.000153 347.95
+  DV18 8 18 0 1 0.00006060606 0.00606060606 1 1 0.0000424242424 0.00424242424 0 0.9 1.1 0.9 1.1 16.5 16.5 15.0 -15.0 6.873863542 -6.873863542 15.0 -15.0 18.0 0.045 0.006061 0.000153 347.45
 ;
+# CORRECCIONES rev. 2026-08-21e (auditoria adversarial):
+#  (1) DV17/DV18: lc 0.000002 -> 0.000153 (= 0.002295/P; la regla 0.00003/P de
+#      los comentarios heredados era la errata: dejaba a los bulk con perdida
+#      0.909% contra 1.136% de la clase 500 MW, cuyo reparto vacio/lineal/
+#      cuadratico 26/53/20 es el fisicamente correcto de un VSC).
+#  (2) Bahias de STATCOM intercambiadas: ST4 (barra 10, 138 kV) llevaba la
+#      bahia de 230 kV y las cinco de 230 kV la de 138. Corregido: 33.90+1.70
+#      =35.6 en 138 kV; 33.90+2.20=36.1 en 230 kV.
+#  (3) CORREGIDO 2026-08-23: los bancos SI llevan bahia (2.29 = 50x11873 +
+#      1.70 de 138 kV). La bahia se suma a banco, STATCOM y SSSC por igual,
+#      porque la Tabla 2.3-8 no incluye posicion de barra para ninguno de los
+#      tres. Bahias en MTEP24 T4.2-1 p.41, fila "Add 1 position (ring bus)".
+# ieee24/facts.dat --- STATCOM top-6 Qd (226,013$/MVAr x150 + bahia por kV); SSSC top-4 x
+# (159,750$/MVAr x 44 MVA serie + bahia 1.70 = 8.73). MISO MTEP24 T2.3-8, USD2024.
 param: NST: st_bus st_g st_b st_Vmin st_Vmax st_S st_cost :=
-  ST1  18  0  -10  0.9  1.1  1.5  35.6
-  ST2  15  0  -10  0.9  1.1  1.5  35.6
-  ST3  13  0  -10  0.9  1.1  1.5  35.6
-  ST4  10  0  -10  0.9  1.1  1.5  36.1
-  ST5  14  0  -10  0.9  1.1  1.5  35.6
-  ST6  19  0  -10  0.9  1.1  1.5  35.6
+  ST1 18 0 -10 0.9 1.1 1.5 36.1
+  ST2 15 0 -10 0.9 1.1 1.5 36.1
+  ST3 13 0 -10 0.9 1.1 1.5 36.1
+  ST4 10 0 -10 0.9 1.1 1.5 35.6
+  ST5 14 0 -10 0.9 1.1 1.5 36.1
+  ST6 19 0 -10 0.9 1.1 1.5 36.1
 ;
-param: LSC: sc_line sc_r sc_x sc_Vmax sc_S sc_Sabs sc_cost :=
-  SC1  E2  0.0546  0.2112  0.2  2.0  0.3  6.5
-  SC2  E5  0.0497  0.192  0.2  2.0  0.3  6.5
-  SC3  E12  0.0427  0.1651  0.2  2.0  0.3  6.5
-  SC4  E13  0.0427  0.1651  0.2  2.0  0.3  6.5
+
+# RATINGS DEL SSSC --- RECONCILIADOS (rev. 2026-08-20)
+#  sc_S es el termico de la RAMA compensada, no del dispositivo: una fuente
+#  serie no cambia el conductor de la anfitriona. Valia 2.0 contra el_S=2.20 de
+#  E2/E5/E12/E13, o sea un -9.1% de recorte termico que castigaba al SSSC sin
+#  justificacion fisica. Se fija sc_S := el_S[anfitriona] = 2.20.
+#  sc_Sabs = sc_Vmax x sc_S = 0.2 x 2.20 = 0.44 (rev. 2026-08-23); con S=2.20 el
+#  limite que ata es sc_Sabs, que a corriente plena deja insertar 0.2 pu (su tension maxima) a corriente plena.
+param: LSC: sc_line sc_r sc_x sc_Vmax sc_S sc_Sabs sc_cost sc_bsh :=
+  SC1  E2  0.0546  0.2112  0.2  2.20  0.44  8.73  0.028600
+  SC2  E5  0.0497  0.192  0.2  2.20  0.44  8.73  0.026000
+  SC3  E12  0.0427  0.1651  0.2  2.20  0.44  8.73  0.022350
+  SC4  E13  0.0427  0.1651  0.2  2.20  0.44  8.73  0.022350
 ;
+# caps_lit.dat --- BANCOS: 4 candidatos, 50 MVAr c/u (modulo unico).
+# Literatura/practica: modulos discretos de 50 MVAr (MISO MTEP24, 11873 $/MVAr
+# -> 0.59 M$/50MVAr). Barras de mayor Qd NO cubiertas por STATCOM (nicho propio):
+#   8 (centro de carga, aterrizaje del corredor), 3, 9, 6.
+# (unico parametro modificado; red/carga/candidatos/costos intactos)
 param: NBC: bc_bus bc_Hmax bc_qmod bc_cmod :=
-  BC8   8   1  0.5  0.59
-  BC3   3   1  0.5  0.59
-  BC9   9   1  0.5  0.59
-  BC6   6   1  0.5  0.59
+  BC8 8 1 0.5 2.29
+  BC3 3 1 0.5 2.29
+  BC9 9 1 0.5 2.29
+  BC6 6 1 0.5 2.29
 ;
 param tan_amax     := 0.8391;
 param theta_max_rad := 0.6981;
+
+# --- load_scale AUTORITATIVO: unico valor efectivo del escenario (bulk v4) ---
+# La calibracion de tighten.dat (0.95) corresponde al dataset IEEE-24 CLASICO
+# (base.dat) y NO aplica aqui; ya fue omitida al concatenar. Este pin final
+# garantiza load_scale=0.75 ante cualquier reconcatenacion (ultima asignacion gana).
 let load_scale := 0.75;
